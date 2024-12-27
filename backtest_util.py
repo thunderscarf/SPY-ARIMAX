@@ -34,8 +34,8 @@ def get_X_y(tickers_ls, end_date =today_string):
     for ticker in tickers_ls:
         data = yf.download(ticker, start='2010-01-01', end=end_date)
         data["Adjustment Multiplier"] = data["Adj Close"] / data["Close"]
-        data["Adj Open"] = data["Open"] * data["Adjustment Multiplier"]
-        data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"].shift(1)) / data["Adj Close"].shift(1)).fillna(0)
+        data["Adj Open"]= data["Open"][ticker] * data["Adjustment Multiplier"]
+        data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"][ticker].shift(1)) / data["Adj Close"][ticker].shift(1)).fillna(0)
         ticker_returns_df = data[[f"{ticker}"]]  
         returns_df = pd.concat([returns_df, ticker_returns_df], axis=1)
         returns_df = returns_df.dropna()
@@ -75,12 +75,15 @@ def generate_backtest(window_size):
     backtest_df = backtest_df.reset_index() 
     backtest_df["Date"] = pd.to_datetime(backtest_df["Date"]).dt.tz_localize(None)
 
+    newbacktest_df = pd.DataFrame( { "Date" : backtest_df["Date"],
+                                     "Close" : backtest_df["Close"]["SPY"],
+                                     "Open" : backtest_df["Open"]["SPY"]})
     plt.figure(figsize=(14, 8))
 
     predictions_df = pd.read_csv(f"rolling_window_predictions_{window_size}.csv")
     predictions_df["Date"] = pd.to_datetime(predictions_df["Date"]).dt.tz_localize(None)
     predictions_df["Prediction"] = predictions_df["Prediction"]/100
-    merged_df = pd.merge(backtest_df, predictions_df, on="Date")
+    merged_df = pd.merge(newbacktest_df, predictions_df, on="Date")
     merged_df["trade_signal"] = np.where(merged_df["Prediction"] > 0, 1, (np.where(merged_df["Prediction"] < 0, -1, 0)))
     merged_df["PnL_no_fees"] = merged_df["trade_signal"] * (merged_df["Close"].shift(1) - merged_df["Open"])
     merged_df["cum_PnL_no_fees"] = merged_df["PnL_no_fees"].cumsum()
@@ -101,11 +104,15 @@ def get_combined_graph(ls_of_rolling_windows):
     backtest_df = backtest_df.reset_index() 
     backtest_df["Date"] = pd.to_datetime(backtest_df["Date"]).dt.tz_localize(None)
 
+    newbacktest_df = pd.DataFrame( { "Date" : backtest_df["Date"],
+                                     "Close" : backtest_df["Close"]["SPY"],
+                                     "Open" : backtest_df["Open"]["SPY"]})
+    
     for roll_window in ls_of_rolling_windows:
         pred_df = pd.read_csv(f"rolling_window_predictions_{roll_window}.csv")
         pred_df["Date"] = pd.to_datetime(pred_df["Date"]).dt.tz_localize(None)
 
-        merged_df = pd.merge(backtest_df, pred_df, on="Date")
+        merged_df = pd.merge(newbacktest_df, pred_df, on="Date")
         merged_df["trade_signal"] = np.where(merged_df["Prediction"] > 0, 1, (np.where(merged_df["Prediction"] < 0, -1, 0)))
         merged_df["PnL_no_fees"] = merged_df["trade_signal"] * (merged_df["Close"].shift(1) - merged_df["Open"])
         merged_df["cum_PnL_no_fees"] = merged_df["PnL_no_fees"].cumsum()
@@ -115,5 +122,11 @@ def get_combined_graph(ls_of_rolling_windows):
     plt.xlabel("Date")
     plt.ylabel("Cumulative PnL (no fees)")
     plt.title("Cumulative PnL for Different Rolling Window Sizes")
+    output_file = f"Combined_cumulative_pnl_27122024.png"
+    plt.savefig(output_file)  # Save the plot to a file
+    print(f"Chart saved as {output_file} !")
     plt.show()
+
+
+    
 
