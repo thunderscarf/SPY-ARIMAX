@@ -37,7 +37,9 @@ def get_X_y(tickers_ls, start_date = '2017-01-01', end_date = today_str, rolling
     print(f"today: {today_str}. Prediction will be for open tomorrow on: {today_plus1_str}")
     returns_df = pd.DataFrame()
     for ticker in tickers_ls:
-        data = yf.download(ticker, start=start_date, end=end_date)
+        data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False)
+        data.columns = data.columns.droplevel('Ticker')
+        data.reset_index(inplace=True)
         data["Adjustment Multiplier"] = data["Adj Close"] / data["Close"]
         data["Adj Open"] = data["Open"] * data["Adjustment Multiplier"]
         data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"].shift(1)) / data["Adj Close"].shift(1)).fillna(0)

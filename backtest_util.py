@@ -6,6 +6,9 @@ from statsmodels.tsa.arima.model import ARIMA
 from datetime import date
 import matplotlib.pyplot as plt
 import numpy as np
+import requests 
+
+API_KEY = "KkfCQ7fsZnx0yK4bhX9fD81QplTh0Pf3"
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", category=UserWarning)  # Suppress UserWarnings
@@ -32,10 +35,14 @@ today_string = today.strftime("%Y-%m-%d")
 def get_X_y(tickers_ls, end_date =today_string):
     returns_df = pd.DataFrame()
     for ticker in tickers_ls:
-        data = yf.download(ticker, start='2010-01-01', end=end_date)
+        data = yf.download(ticker, start="2024-01-01", end=end_date, auto_adjust=False)
+        data.columns = data.columns.droplevel('Ticker')
+        # data.reset_index(inplace=True)
+        # data.set_index("Date", inplace=True, drop=True)
+        # print(data)
         data["Adjustment Multiplier"] = data["Adj Close"] / data["Close"]
-        data["Adj Open"]= data["Open"][ticker] * data["Adjustment Multiplier"]
-        data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"][ticker].shift(1)) / data["Adj Close"][ticker].shift(1)).fillna(0)
+        data["Adj Open"]= data["Open"] * data["Adjustment Multiplier"]
+        data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"].shift(1)) / data["Adj Close"].shift(1)).fillna(0)
         ticker_returns_df = data[[f"{ticker}"]]  
         returns_df = pd.concat([returns_df, ticker_returns_df], axis=1)
         returns_df = returns_df.dropna()
@@ -63,11 +70,12 @@ def rolling_predictions(X, y, window_size):
         prediction = model_fit.predict(X=pred_features)
 
         predictions.append(prediction.iloc[0])
-
+        print(f'Date: {y.index[end_idx]}, Prediction: {prediction.iloc[0]}')
     results = pd.DataFrame({'Date': dates, 'Prediction': predictions})
     results.set_index('Date', inplace=True)
     results.to_csv(f'rolling_window_predictions_{window_size}.csv')
     print(f"results saved to 'rolling_window_predictions_{window_size}.csv' !")
+    return results
 
 def generate_backtest(window_size):
     
@@ -98,6 +106,7 @@ def generate_backtest(window_size):
     output_file = f"cumulative_pnl_window_{window_size}.png"
     plt.savefig(output_file)  # Save the plot to a file
     print(f"Chart saved as {output_file} !")
+    return merged_df 
 
 def get_combined_graph(ls_of_rolling_windows):
     backtest_df = yf.download("SPY", start='2010-01-01', end=today_string)
@@ -130,3 +139,35 @@ def get_combined_graph(ls_of_rolling_windows):
 
     
 
+def get_options_df(ticker, date, primary_strike, fallback_strike, option_type = 'call'):
+    ''' 
+    option_type either 'call' or 'put'
+    '''
+    if option_type == None:
+        return None
+    try:
+        url_primary = f"https://api.polygon.io/v3/reference/options/contracts?underlying_ticker={ticker}&contract_type={option_type}&as_of={date}&strike_price={primary_strike}&limit=1000&apiKey={API_KEY}"
+        response_primary = requests.get(url_primary)
+        # Check if primary request is successful
+        if response_primary.status_code == 200:
+            data_primary = response_primary.json()
+            if "results" in data_primary and data_primary["results"]:
+                print(f"✅ Found results for {ticker} on {date} at strike {primary_strike}")
+                return pd.json_normalize(data_primary["results"])  
+        
+        print(f"⚠️ No results for {ticker} at {primary_strike}, retrying with rounded strike {fallback_strike}...")
+        url_fallback = f"https://api.polygon.io/v3/reference/options/contracts?underlying_ticker={ticker}&contract_type={option_type}&as_of={date}&strike_price={fallback_strike}&limit=1000&apiKey={API_KEY}"
+        response_fallback = requests.get(url_fallback)
+
+        if response_fallback.status_code == 200:
+            data_fallback = response_fallback.json()
+            if "results" in data_fallback and data_fallback["results"]:
+                print(f"✅ Found results for {ticker} on {date} at fallback strike {fallback_strike}")
+                return pd.json_normalize(data_fallback["results"]) 
+
+        print(f"❌ No results found for {ticker} on {date} at both strikes ({primary_strike} and {fallback_strike})")
+        return None
+
+    except Exception as e:
+        print(f"Error fetching options data: {e}")
+        return None
