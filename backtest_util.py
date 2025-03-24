@@ -15,20 +15,7 @@ API_KEY = "KkfCQ7fsZnx0yK4bhX9fD81QplTh0Pf3"
 warnings.filterwarnings("ignore", category=UserWarning)  # Suppress UserWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)  # Suppress FutureWarnings
 
-TICKERS = [
-    'SPY',   # S&P 500 ETF
-    'XLB',   # Materials
-    'XLE',   # Energy
-    'XLF',   # Financials
-    'XLI',   # Industrials
-    'XLK',   # Technology
-    'XLP',   # Consumer Staples
-    'XLU',   # Utilities
-    'XLV',   # Health Care
-    'XLY',   # Consumer Discretionary
-    'XLRE',  # Real Estate
-    'XLC'    # Communication Services
-]
+
 
 today = date.today()
 today_string = today.strftime("%Y-%m-%d")
@@ -36,17 +23,24 @@ today_string = today.strftime("%Y-%m-%d")
 def get_X_y(tickers_ls, end_date =today_string):
     returns_df = pd.DataFrame()
     for ticker in tickers_ls:
-        data = yf.download(ticker, start="2024-01-01", end=end_date, auto_adjust=False)
+        data = yf.download(ticker, start="2021-01-01", end=end_date, auto_adjust=False)
         data.columns = data.columns.droplevel('Ticker')
         data["Adjustment Multiplier"] = data["Adj Close"] / data["Close"]
-        data["Adj Open"]= data["Open"] * data["Adjustment Multiplier"]
-
-        data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"].shift(1)) / data["Adj Close"].shift(1)).fillna(0)
-        ticker_returns_df = data[[f"{ticker}"]]  
+        data[f"{ticker}_intraday_return"] =  (data["Close"] - data["Open"]) / data["Open"] #(today's close - today's open) / today's open
+        data[f"{ticker}_overnight_return"] = (data["Open"].shift(-1) - data["Close"]) / data["Close"] #(tomorrow's open - today's close)/today's close
+        # data["Adj Open"]= data["Open"] * data["Adjustment Multiplier"]
+        ticker_returns_df = data[[f"{ticker}_intraday_return", f"{ticker}_overnight_return"]]
         returns_df = pd.concat([returns_df, ticker_returns_df], axis=1)
         returns_df = returns_df.dropna()
-    X = returns_df[['XLB', 'XLE','XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XLRE', 'XLC' ]].shift(1).dropna()
-    y = returns_df["SPY"][1:]
+
+    print(returns_df)
+    # Use today's return for the features (X)
+    X = returns_df.filter(like="_intraday_return", axis = 'columns')
+    # Use tomorrow's return for the target (y)
+    y = returns_df.filter(like="_overnight_return", axis = 'columns')[["SPY_overnight_return"]]
+        
+    # X = returns_df[['XLB', 'XLE','XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XLRE', 'XLC' ]].shift(1).dropna()
+    # y = returns_df["SPY"][1:]
     return X,y
 
 def rolling_predictions(X, y, window_size):
