@@ -7,7 +7,8 @@ from datetime import date
 import matplotlib.pyplot as plt
 import numpy as np
 import requests 
-
+import pandas_market_calendars as mcal
+import pmdarima as pm
 API_KEY = "KkfCQ7fsZnx0yK4bhX9fD81QplTh0Pf3"
 
 # Suppress specific warnings
@@ -37,11 +38,9 @@ def get_X_y(tickers_ls, end_date =today_string):
     for ticker in tickers_ls:
         data = yf.download(ticker, start="2024-01-01", end=end_date, auto_adjust=False)
         data.columns = data.columns.droplevel('Ticker')
-        # data.reset_index(inplace=True)
-        # data.set_index("Date", inplace=True, drop=True)
-        # print(data)
         data["Adjustment Multiplier"] = data["Adj Close"] / data["Close"]
         data["Adj Open"]= data["Open"] * data["Adjustment Multiplier"]
+
         data[f"{ticker}"] = ((data["Adj Open"] - data["Adj Close"].shift(1)) / data["Adj Close"].shift(1)).fillna(0)
         ticker_returns_df = data[[f"{ticker}"]]  
         returns_df = pd.concat([returns_df, ticker_returns_df], axis=1)
@@ -61,16 +60,20 @@ def rolling_predictions(X, y, window_size):
         y_train = y.iloc[start_idx:end_idx]
         X_train = X.iloc[start_idx:end_idx]
 
-        model = ARIMA(y_train, exog=X_train, order=(5, 1, 0))
-        model_fit = model.fit()
-        # arima_model = pm.arima.auto_arima(y=y_train, X=X_train)   
-        pred_features = X.iloc[end_idx]
-
+        # model = ARIMA(y_train, exog=X_train, order=(5, 1, 0))
+        # model_fit = model.fit()
+        pred_features = X.iloc[[end_idx]]
+        print(X_train)
+        
+        arima_model = pm.arima.auto_arima(y=y_train, X=X_train)   
+        print(pred_features)
+        y_forecast = arima_model.predict(n_periods=1, X=pred_features)
+        print(y_forecast)
         # pred_features = pd.DataFrame(pred_features)
-        prediction = model_fit.predict(X=pred_features)
+        # prediction = model_fit.predict(X=pred_features)
 
-        predictions.append(prediction.iloc[0])
-        print(f'Date: {y.index[end_idx]}, Prediction: {prediction.iloc[0]}')
+        predictions.append(y_forecast.iloc[0])
+        print(f'Date: {y.index[end_idx]}, Prediction: {y_forecast.iloc[0]}')
     results = pd.DataFrame({'Date': dates, 'Prediction': predictions})
     results.set_index('Date', inplace=True)
     results.to_csv(f'rolling_window_predictions_{window_size}.csv')
@@ -79,7 +82,7 @@ def rolling_predictions(X, y, window_size):
 
 def generate_backtest(window_size):
     
-    backtest_df = yf.download("SPY", start='2010-01-01', end=today_string)
+    backtest_df = yf.download("SPY", start='2010-01-01', end=today_string, auto_adjust=False)
     backtest_df = backtest_df.reset_index() 
     backtest_df["Date"] = pd.to_datetime(backtest_df["Date"]).dt.tz_localize(None)
 
@@ -87,13 +90,14 @@ def generate_backtest(window_size):
                                      "Close" : backtest_df["Close"]["SPY"],
                                      "Open" : backtest_df["Open"]["SPY"]})
     plt.figure(figsize=(14, 8))
-
+    print(backtest_df)
+    print(newbacktest_df)
     predictions_df = pd.read_csv(f"rolling_window_predictions_{window_size}.csv")
     predictions_df["Date"] = pd.to_datetime(predictions_df["Date"]).dt.tz_localize(None)
-    predictions_df["Prediction"] = predictions_df["Prediction"]/100
+
     merged_df = pd.merge(newbacktest_df, predictions_df, on="Date")
     merged_df["trade_signal"] = np.where(merged_df["Prediction"] > 0, 1, (np.where(merged_df["Prediction"] < 0, -1, 0)))
-    merged_df["PnL_no_fees"] = merged_df["trade_signal"] * (merged_df["Close"].shift(1) - merged_df["Open"])
+    merged_df["PnL_no_fees"] = merged_df["trade_signal"] * ( merged_df["Open"] - merged_df["Close"].shift(1) )
     merged_df["cum_PnL_no_fees"] = merged_df["PnL_no_fees"].cumsum()
     plt.plot(merged_df["Date"], merged_df["cum_PnL_no_fees"], label=f'Rolling Window: {window_size}')
         
@@ -122,8 +126,9 @@ def get_combined_graph(ls_of_rolling_windows):
         pred_df["Date"] = pd.to_datetime(pred_df["Date"]).dt.tz_localize(None)
 
         merged_df = pd.merge(newbacktest_df, pred_df, on="Date")
+        merged_df['Prediction'] = pd.to_numeric(merged_df['Prediction'])
         merged_df["trade_signal"] = np.where(merged_df["Prediction"] > 0, 1, (np.where(merged_df["Prediction"] < 0, -1, 0)))
-        merged_df["PnL_no_fees"] = merged_df["trade_signal"] * (merged_df["Close"].shift(1) - merged_df["Open"])
+        merged_df["PnL_no_fees"] = merged_df["trade_signal"] * (merged_df["Open"] - merged_df["Close"].shift(1))
         merged_df["cum_PnL_no_fees"] = merged_df["PnL_no_fees"].cumsum()
         plt.plot(merged_df["Date"], merged_df["cum_PnL_no_fees"], label=f'Rolling Window {roll_window}')
     
@@ -131,7 +136,7 @@ def get_combined_graph(ls_of_rolling_windows):
     plt.xlabel("Date")
     plt.ylabel("Cumulative PnL (no fees)")
     plt.title("Cumulative PnL for Different Rolling Window Sizes")
-    output_file = f"Combined_cumulative_pnl_27122024.png"
+    output_file = f"Combined_cumulative_pnl.png"
     plt.savefig(output_file)  # Save the plot to a file
     print(f"Chart saved as {output_file} !")
     plt.show()
@@ -171,3 +176,21 @@ def get_options_df(ticker, date, primary_strike, fallback_strike, option_type = 
     except Exception as e:
         print(f"Error fetching options data: {e}")
         return None
+    
+def get_open_close_price_option(option_ticker, entry_date):
+    #get next trading day
+    nyse = mcal.get_calendar('NYSE')
+    next_open_day = nyse.valid_days(start_date=entry_date, end_date=entry_date + pd.Timedelta(days=10))[1]
+    
+    entry_date_str = entry_date.strftime('%Y-%m-%d')
+    next_open_day_str = next_open_day.strftime('%Y-%m-%d')
+
+    print(f'decision date: {entry_date_str}. trade executed at close of {entry_date_str}, end at the open of {next_open_day_str}.')
+    url_primary = f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/day/{entry_date_str}/{next_open_day_str}?adjusted=true&sort=asc&apiKey={API_KEY}"
+    ohlcvdf = pd.json_normalize(requests.get(url_primary).json()['results']).set_index("t")
+    ohlcvdf.index = pd.to_datetime(ohlcvdf.index, unit="ms", utc=True).tz_convert("America/New_York")
+    print(ohlcvdf)
+    entry_price = ohlcvdf['c'].iloc[0]
+    exit_price = ohlcvdf['o'].iloc[-1]
+    return entry_price, exit_price, next_open_day_str
+
