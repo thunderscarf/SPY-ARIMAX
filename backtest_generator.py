@@ -19,21 +19,22 @@ TICKERS = [
 ]
 
 #-----------------------------------------------------------------------
-window_sizes_ls = [250,500]
+# window_sizes_ls = [5, 10,20, 40, 250]
+window_sizes_ls = [10, 20]
 nyse = mcal.get_calendar("NYSE")
 for num in window_sizes_ls:
-    X,y = get_X_y(TICKERS)
-    print(X)
-    print(y)
-    results_df = rolling_predictions(X,y, window_size = num)
-    print(results_df)
+#     X,y = get_X_y(TICKERS)
+#     print(X)
+#     print(y)
+#     results_df = rolling_predictions(X,y, window_size = num)
+#     print(results_df)
 
-    backtest_df = generate_backtest(window_size = num)
-    # print(backtest_df)
-    backtest_df.to_csv(f'backtest_df_{num}.csv', index=False)
+#     backtest_df = generate_backtest(window_size = num)
+#     # print(backtest_df)
+#     backtest_df.to_csv(f'backtest_df_{num}.csv', index=False)
 
 
-# # # get_combined_graph(window_sizes_ls)
+# # # # get_combined_graph(window_sizes_ls)
 
 
     backtest_df = pd.read_csv(f'backtest_df_{num}.csv')
@@ -41,10 +42,12 @@ for num in window_sizes_ls:
     backtest_df['Close_tminus1'] = backtest_df['Close'].shift(1)
     backtest_df = backtest_df.iloc[1:]
     pnl_df = pd.DataFrame()
-
+    backtest_df = backtest_df[(backtest_df['Prediction'] >= 0.01) | (backtest_df['Prediction'] <= -0.01)]
     for idx in range(len(backtest_df)):
         exit_date = backtest_df['Date'].iloc[idx]
         trade_signal = backtest_df['trade_signal'].iloc[idx]
+        prediction = backtest_df['Prediction'].iloc[idx]
+
         option_direction = 'call' if trade_signal == 1 else 'put'
         prev_close_price = backtest_df['Close_tminus1'].iloc[idx]
 
@@ -76,24 +79,24 @@ for num in window_sizes_ls:
 
     pnl_df.reset_index(inplace=True, drop = True)
     print(pnl_df)
-    pnl_df.to_csv(f'pnl_df{num}.csv', index=False)
+    pnl_df.to_csv(f'pnl_df{num}_filtered.csv', index=False)
 
 
 # for num in window_sizes_ls:
 #     pnl_dfs = pd.read_csv(f'pnl_df{num}.csv')
 #     pnl_dfs['exit_date'] = pd.to_datetime(pnl_dfs['exit_date']) 
-#     pnl_dfs['qty'] = np.floor(1000/pnl_dfs['entry_price'])
-#     pnl_dfs['pnl_w_qty'] =  pnl_dfs['pnl_w_slippage'] * pnl_dfs['qty']
+#     # pnl_dfs['qty'] = np.floor(1000/pnl_dfs['entry_price'])
+#     # pnl_dfs['pnl_w_qty'] =  pnl_dfs['pnl_w_slippage'] * pnl_dfs['qty']
 
-#     pnl_dfs['cum_pnl'] = pnl_dfs['pnl_w_qty'].cumsum() * 100 
-#     pnl_dfs['Capital'] = 10000 + pnl_dfs['cum_pnl']
-#     plt.plot(pnl_dfs["exit_date"], pnl_dfs["Capital"], label=f'Rolling Window {num}')
+#     pnl_dfs['cum_pnl'] = pnl_dfs['pnl_w_slippage'].cumsum() * 100 
+#     # pnl_dfs['Capital'] = 10000 + pnl_dfs['cum_pnl']
+#     plt.plot(pnl_dfs["exit_date"], pnl_dfs["cum_pnl"], label=f'Rolling Window {num}')
 #     # backtest_df = generate_backtest(window_size = num)
 # plt.legend()
 # plt.xlabel("Date")
-# plt.ylabel("Capital w Fees")
-# plt.title("Capital for Different Rolling Window Sizes")
-# output_file = f"Capital_options.png"
+# plt.ylabel("cum_pnl w Fees")
+# plt.title("cum_pnl for Different Rolling Window Sizes")
+# output_file = f"cum_pnl_options.png"
 # plt.savefig(output_file)  # Save the plot to a file
 # print(f"Chart saved as {output_file} !")
 # plt.show()
